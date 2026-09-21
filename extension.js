@@ -8,6 +8,8 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 
+const CORE_REPO_URL = 'https://github.com/kvunoff/whoisthat';
+
 const WhoisThatIndicator = GObject.registerClass(
 class WhoisThatIndicator extends PanelMenu.Button {
     _init(settings) {
@@ -21,6 +23,7 @@ class WhoisThatIndicator extends PanelMenu.Button {
         this._settingsSignals = [];
 
         this._state = {
+            binary_installed: true,
             core_running: false,
             connected: false,
             tun_enabled: false,
@@ -74,16 +77,25 @@ class WhoisThatIndicator extends PanelMenu.Button {
         this._menuHeader = new PopupMenu.PopupMenuItem('WhoisThat: Offline', { reactive: false });
         this.menu.addMenuItem(this._menuHeader);
 
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        // 2. Install guidance item (shown only when whoisthat is missing)
+        this._installItem = new PopupMenu.PopupMenuItem('Install WhoisThat CLI...');
+        this._installItem.connect('activate', () => {
+            Gio.AppInfo.launch_default_for_uri(CORE_REPO_URL, null);
+        });
+        this.menu.addMenuItem(this._installItem);
+        this._installItem.visible = false;
 
-        // 2. Connect / Disconnect button (toggle via -t)
+        this._separator1 = new PopupMenu.PopupSeparatorMenuItem();
+        this.menu.addMenuItem(this._separator1);
+
+        // 3. Connect / Disconnect button (toggle via -t)
         this._connectToggleItem = new PopupMenu.PopupMenuItem('Connect');
         this._connectToggleItem.connect('activate', () => {
             this._runCmd(['whoisthat', '-t']);
         });
         this.menu.addMenuItem(this._connectToggleItem);
 
-        // 3. TUN Mode switch (toggle via -mt)
+        // 4. TUN Mode switch (toggle via -mt)
         this._tunToggleItem = new PopupMenu.PopupSwitchMenuItem('TUN Mode', false);
         this._tunToggleItem.connect('toggled', (_item, state) => {
             if (this._syncingTunToggle) return;
@@ -93,7 +105,7 @@ class WhoisThatIndicator extends PanelMenu.Button {
         });
         this.menu.addMenuItem(this._tunToggleItem);
 
-        // 4. Profiles list submenu
+        // 5. Profiles list submenu
         this._profilesSubmenu = new PopupMenu.PopupSubMenuMenuItem('Profiles');
         this.menu.addMenuItem(this._profilesSubmenu);
         this._refreshProfilesMenu();
@@ -105,14 +117,15 @@ class WhoisThatIndicator extends PanelMenu.Button {
             }
         });
 
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        this._separator2 = new PopupMenu.PopupSeparatorMenuItem();
+        this.menu.addMenuItem(this._separator2);
 
-        // 5. Open full TUI interface
-        const openTuiItem = new PopupMenu.PopupMenuItem('Open WhoisThat TUI');
-        openTuiItem.connect('activate', () => {
+        // 6. Open full TUI interface
+        this._openTuiItem = new PopupMenu.PopupMenuItem('Open WhoisThat TUI');
+        this._openTuiItem.connect('activate', () => {
             this._launchTerminal();
         });
-        this.menu.addMenuItem(openTuiItem);
+        this.menu.addMenuItem(this._openTuiItem);
     }
 
     _updateUi() {
@@ -125,6 +138,30 @@ class WhoisThatIndicator extends PanelMenu.Button {
         const forceDot = !showDot && !showStatusText && !showModeBadge && !showSpeed;
         this._dot.visible = showDot || forceDot;
 
+        // State A: WhoisThat binary is not installed
+        if (!this._state.binary_installed) {
+            this._dot.style_class = 'whoisthat-status-dot whoisthat-status-offline';
+            this._label.text = '[Not Installed]';
+            this._label.visible = showStatusText;
+            this._menuHeader.label.text = 'WhoisThat is not installed';
+            this._installItem.visible = true;
+            this._separator1.visible = true;
+            this._connectToggleItem.visible = false;
+            this._tunToggleItem.visible = false;
+            this._profilesSubmenu.visible = false;
+            this._separator2.visible = false;
+            this._openTuiItem.visible = false;
+            return;
+        }
+
+        // State B: Binary is installed, but core daemon is not running
+        this._installItem.visible = false;
+        this._connectToggleItem.visible = true;
+        this._tunToggleItem.visible = true;
+        this._profilesSubmenu.visible = true;
+        this._separator2.visible = true;
+        this._openTuiItem.visible = true;
+
         if (!this._state.core_running) {
             this._dot.style_class = 'whoisthat-status-dot whoisthat-status-offline';
             this._label.text = '[Offline]';
@@ -136,6 +173,7 @@ class WhoisThatIndicator extends PanelMenu.Button {
             return;
         }
 
+        // State C: Core daemon is online
         this._connectToggleItem.setSensitive(true);
         this._tunToggleItem.setSensitive(true);
 
@@ -174,6 +212,16 @@ class WhoisThatIndicator extends PanelMenu.Button {
     }
 
     _startWatcher() {
+        if (!GLib.find_program_in_path('whoisthat')) {
+            this._state.binary_installed = false;
+            this._state.core_running = false;
+            this._updateUi();
+            this._scheduleReconnect(30);
+            return;
+        }
+
+        this._state.binary_installed = true;
+
         try {
             this._watchProcess = new Gio.Subprocess({
                 argv: ['whoisthat', 'status', '--watch', '--json'],
@@ -200,6 +248,7 @@ class WhoisThatIndicator extends PanelMenu.Button {
                 if (line !== null) {
                     const parsed = JSON.parse(line);
                     this._state = Object.assign(this._state, parsed);
+                    this._state.binary_installed = true;
                     this._updateUi();
                     this._readNextLine(dataStream);
                 } else {
@@ -246,6 +295,8 @@ class WhoisThatIndicator extends PanelMenu.Button {
     }
 
     _refreshProfilesMenu() {
+        if (!this._state.binary_installed) return;
+
         try {
             const proc = new Gio.Subprocess({
                 argv: ['whoisthat', 'profiles', '--json'],
@@ -280,6 +331,11 @@ class WhoisThatIndicator extends PanelMenu.Button {
     }
 
     _launchTerminal() {
+        if (!GLib.find_program_in_path('whoisthat')) {
+            Gio.AppInfo.launch_default_for_uri(CORE_REPO_URL, null);
+            return;
+        }
+
         const preferred = this._settings ? this._settings.get_string('terminal-command') : 'auto';
 
         if (preferred && preferred !== 'auto' && GLib.find_program_in_path(preferred)) {
