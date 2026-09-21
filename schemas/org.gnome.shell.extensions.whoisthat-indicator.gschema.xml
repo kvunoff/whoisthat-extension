@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.whoisthat-indicator" path="/org/gnome/shell/extensions/whoisthat-indicator/">
+    <key name="panel-box" type="s">
+      <default>'right'</default>
+      <summary>Panel box location</summary>
+      <description>
+        Determines which section of the GNOME top bar the indicator appears in.
+        Allowed values: 'left', 'center', 'right'.
+      </description>
+    </key>
+    <key name="panel-position" type="i">
+      <default>0</default>
+      <summary>Position index in panel box</summary>
+      <description>
+        Order index inside the chosen panel box.
+      </description>
+    </key>
+    <key name="show-status-dot" type="b">
+      <default>true</default>
+      <summary>Show status dot</summary>
+      <description>
+        Show or hide the colored status dot (●) in the top bar.
+      </description>
+    </key>
+    <key name="show-status-text" type="b">
+      <default>true</default>
+      <summary>Show status text</summary>
+      <description>
+        Show or hide the status text ([Connected] / [Disconnected] / [Offline]).
+      </description>
+    </key>
+    <key name="show-mode-badge" type="b">
+      <default>true</default>
+      <summary>Show VPN mode badge</summary>
+      <description>
+        Show or hide the [TUN] / [Proxy] mode badge in the top bar.
+      </description>
+    </key>
+    <key name="show-speed" type="b">
+      <default>true</default>
+      <summary>Show live speed</summary>
+      <description>
+        Show or hide download and upload speeds in the top bar.
+      </description>
+    </key>
+    <key name="terminal-command" type="s">
+      <default>'auto'</default>
+      <summary>Terminal emulator for TUI</summary>
+      <description>
+        Preferred terminal emulator command to launch WhoisThat TUI:
+        'auto', 'alacritty', 'gnome-terminal', 'ptyxis', 'kitty', 'ghostty', 'xterm'.
+      </description>
+    </key>
+  </schema>
+</schemalist>

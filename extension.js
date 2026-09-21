@@ -10,13 +10,15 @@ import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 
 const WhoisThatIndicator = GObject.registerClass(
 class WhoisThatIndicator extends PanelMenu.Button {
-    _init() {
+    _init(settings) {
         super._init(0.0, 'WhoisThat Indicator');
 
+        this._settings = settings;
         this._cancellable = new Gio.Cancellable();
         this._watchProcess = null;
         this._reconnectTimeoutId = null;
         this._syncingTunToggle = false;
+        this._settingsSignals = [];
 
         this._state = {
             core_running: false,
@@ -49,7 +51,20 @@ class WhoisThatIndicator extends PanelMenu.Button {
         this.add_child(box);
 
         this._buildMenu();
+        this._bindSettings();
         this._startWatcher();
+    }
+
+    _bindSettings() {
+        if (!this._settings) return;
+
+        const updateKeys = ['show-status-dot', 'show-status-text', 'show-mode-badge', 'show-speed'];
+        for (const key of updateKeys) {
+            const sid = this._settings.connect(`changed::${key}`, () => {
+                this._updateUi();
+            });
+            this._settingsSignals.push(sid);
+        }
     }
 
     _buildMenu() {
@@ -101,9 +116,19 @@ class WhoisThatIndicator extends PanelMenu.Button {
     }
 
     _updateUi() {
+        const showDot = this._settings ? this._settings.get_boolean('show-status-dot') : true;
+        const showStatusText = this._settings ? this._settings.get_boolean('show-status-text') : true;
+        const showModeBadge = this._settings ? this._settings.get_boolean('show-mode-badge') : true;
+        const showSpeed = this._settings ? this._settings.get_boolean('show-speed') : true;
+
+        // Fallback: at least one element must be visible so indicator is clickable
+        const forceDot = !showDot && !showStatusText && !showModeBadge && !showSpeed;
+        this._dot.visible = showDot || forceDot;
+
         if (!this._state.core_running) {
             this._dot.style_class = 'whoisthat-status-dot whoisthat-status-offline';
             this._label.text = '[Offline]';
+            this._label.visible = showStatusText;
             this._menuHeader.label.text = 'WhoisThat: Core is offline';
             this._connectToggleItem.label.text = 'Connect';
             this._connectToggleItem.setSensitive(false);
@@ -118,12 +143,22 @@ class WhoisThatIndicator extends PanelMenu.Button {
         this._tunToggleItem.setToggleState(!!this._state.tun_enabled);
         this._syncingTunToggle = false;
 
+        const modeTag = this._state.tun_enabled ? 'TUN' : 'Proxy';
+
         if (this._state.connected) {
             this._dot.style_class = 'whoisthat-status-dot whoisthat-status-connected';
-            const modeTag = this._state.tun_enabled ? 'TUN' : 'Proxy';
-            const rx = this._state.rx_speed_human || '0 B/s';
-            const tx = this._state.tx_speed_human || '0 B/s';
-            this._label.text = `[Connected] [${modeTag}] ↓ ${rx} ↑ ${tx}`;
+
+            const parts = [];
+            if (showStatusText) parts.push('[Connected]');
+            if (showModeBadge) parts.push(`[${modeTag}]`);
+            if (showSpeed) {
+                const rx = this._state.rx_speed_human || '0 B/s';
+                const tx = this._state.tx_speed_human || '0 B/s';
+                parts.push(`↓ ${rx} ↑ ${tx}`);
+            }
+
+            this._label.text = parts.join(' ');
+            this._label.visible = parts.length > 0;
 
             const name = this._state.profile_name || 'Connected';
             const proto = this._state.protocol ? ` (${this._state.protocol})` : '';
@@ -132,6 +167,7 @@ class WhoisThatIndicator extends PanelMenu.Button {
         } else {
             this._dot.style_class = 'whoisthat-status-dot whoisthat-status-disconnected';
             this._label.text = '[Disconnected]';
+            this._label.visible = showStatusText;
             this._menuHeader.label.text = 'WhoisThat: Disconnected';
             this._connectToggleItem.label.text = 'Connect';
         }
@@ -244,6 +280,20 @@ class WhoisThatIndicator extends PanelMenu.Button {
     }
 
     _launchTerminal() {
+        const preferred = this._settings ? this._settings.get_string('terminal-command') : 'auto';
+
+        if (preferred && preferred !== 'auto' && GLib.find_program_in_path(preferred)) {
+            const flag = preferred === 'gnome-terminal' || preferred === 'ptyxis' ? '--' : '-e';
+            try {
+                const proc = new Gio.Subprocess({
+                    argv: [preferred, flag, 'whoisthat'],
+                    flags: Gio.SubprocessFlags.NONE
+                });
+                proc.init(null);
+                return;
+            } catch (_) {}
+        }
+
         const terminals = [
             ['xdg-terminal-exec', 'whoisthat'],
             ['alacritty', '-e', 'whoisthat'],
@@ -269,6 +319,13 @@ class WhoisThatIndicator extends PanelMenu.Button {
     }
 
     destroy() {
+        if (this._settings && this._settingsSignals) {
+            for (const sid of this._settingsSignals) {
+                this._settings.disconnect(sid);
+            }
+            this._settingsSignals = [];
+        }
+
         if (this._reconnectTimeoutId) {
             GLib.source_remove(this._reconnectTimeoutId);
             this._reconnectTimeoutId = null;
@@ -286,11 +343,47 @@ class WhoisThatIndicator extends PanelMenu.Button {
 
 export default class WhoisThatExtension extends Extension {
     enable() {
-        this._indicator = new WhoisThatIndicator();
-        Main.panel.addToStatusArea(this.uuid, this._indicator);
+        this._settings = this.getSettings();
+        this._settingsSignals = [];
+
+        const onPositionChanged = () => {
+            this._reposition();
+        };
+
+        this._settingsSignals.push(
+            this._settings.connect('changed::panel-box', onPositionChanged),
+            this._settings.connect('changed::panel-position', onPositionChanged)
+        );
+
+        this._setupIndicator();
+    }
+
+    _setupIndicator() {
+        if (this._indicator) {
+            this._indicator.destroy();
+            this._indicator = null;
+        }
+
+        const box = this._settings.get_string('panel-box') || 'right';
+        const pos = this._settings.get_int('panel-position') || 0;
+
+        this._indicator = new WhoisThatIndicator(this._settings);
+        Main.panel.addToStatusArea(this.uuid, this._indicator, pos, box);
+    }
+
+    _reposition() {
+        this._setupIndicator();
     }
 
     disable() {
+        if (this._settings && this._settingsSignals) {
+            for (const id of this._settingsSignals) {
+                this._settings.disconnect(id);
+            }
+            this._settingsSignals = [];
+        }
+        this._settings = null;
+
         if (this._indicator) {
             this._indicator.destroy();
             this._indicator = null;

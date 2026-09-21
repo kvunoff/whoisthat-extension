@@ -14,6 +14,10 @@ Top bar indicator and quick control menu for the **WhoisThat** VPN client.
   - Quick **TUN Mode** switch (system VPN / proxy).
   - Nested **Profiles** list grouped by subscription with active profile checkmark.
   - **Open WhoisThat TUI** button to launch full interface in a terminal.
+- **Preferences & Customization**:
+  - **Positioning**: choose top bar panel section (Right, Center, Left) and position order index with immediate on-the-fly relocation.
+  - **Appearance**: toggle visibility for status dot (`●`), status text (`[Connected]`), mode badge (`[TUN]`/`[Proxy]`), and live speed.
+  - **Terminal**: select preferred terminal emulator for launching TUI (Auto-detect, Alacritty, GNOME Terminal, Ptyxis, Kitty, Ghostty, XTerm).
 - **Reliability**:
   - Asynchronous NDJSON stream reading (`whoisthat status --watch --json`) without blocking GNOME Shell.
   - Automatic reconnection when WhoisThat daemon restarts.
@@ -33,6 +37,9 @@ make install
 
 # Enable extension
 make enable
+
+# Open preferences window (customization)
+make prefs
 
 # Build .zip package for extensions.gnome.org
 make pack

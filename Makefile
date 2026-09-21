@@ -2,17 +2,22 @@ UUID = whoisthat-indicator@kvunoff
 INSTALL_DIR = $(HOME)/.local/share/gnome-shell/extensions/$(UUID)
 SRC_DIR = $(shell pwd)
 
-.PHONY: all install install-link enable disable pack uninstall logs
+.PHONY: all schemas install install-link enable disable pack prefs uninstall logs
 
-all: install
+all: schemas install
 
-install:
+schemas:
+	@echo "Compiling GSettings schemas..."
+	@glib-compile-schemas schemas/
+
+install: schemas
 	@echo "Installing $(UUID) to $(INSTALL_DIR)..."
-	@mkdir -p $(INSTALL_DIR)
-	@cp -f metadata.json stylesheet.css extension.js $(INSTALL_DIR)/
-	@echo "Installed. Run 'make enable' or restart GNOME Shell."
+	@mkdir -p $(INSTALL_DIR)/schemas
+	@cp -f metadata.json stylesheet.css extension.js prefs.js $(INSTALL_DIR)/
+	@cp -f schemas/* $(INSTALL_DIR)/schemas/
+	@echo "Installed successfully. Use 'make prefs' to open settings."
 
-install-link:
+install-link: schemas
 	@echo "Symlinking $(SRC_DIR) -> $(INSTALL_DIR)..."
 	@mkdir -p $(dir $(INSTALL_DIR))
 	@rm -rf $(INSTALL_DIR)
@@ -27,9 +32,15 @@ disable:
 	@gnome-extensions disable $(UUID)
 	@echo "Extension $(UUID) disabled."
 
-pack:
+prefs:
+	@gnome-extensions prefs $(UUID)
+
+pack: schemas
 	@echo "Packaging extension..."
-	@gnome-extensions pack --force --extra-source=stylesheet.css
+	@gnome-extensions pack --force \
+		--extra-source=stylesheet.css \
+		--extra-source=prefs.js \
+		--extra-source=schemas
 	@echo "Created $(UUID).shell-extension.zip"
 
 uninstall: disable
