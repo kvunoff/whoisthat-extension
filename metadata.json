@@ -1,0 +1,15 @@
+{
+  "uuid": "whoisthat-indicator@kvunoff",
+  "name": "WhoisThat VPN Indicator",
+  "description": "Live status, speed monitor and quick controls for WhoisThat VPN",
+  "shell-version": [
+    "45",
+    "46",
+    "47",
+    "48",
+    "49",
+    "50"
+  ],
+  "url": "https://github.com/kvunoff/whoisthat",
+  "version": 1
+}

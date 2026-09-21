@@ -1,0 +1,37 @@
+.whoisthat-panel-box {
+    spacing: 6px;
+}
+
+.whoisthat-status-dot {
+    font-size: 11px;
+    margin-right: 4px;
+}
+
+.whoisthat-status-connected {
+    color: #4ade80; /* Green */
+}
+
+.whoisthat-status-disconnected {
+    color: #94a3b8; /* Gray */
+}
+
+.whoisthat-status-offline {
+    color: #f87171; /* Red */
+}
+
+.whoisthat-panel-text {
+    font-weight: 600;
+    font-size: 12px;
+}
+
+.whoisthat-speed-text {
+    font-size: 11px;
+    font-family: monospace;
+    color: #cbd5e1;
+}
+
+.whoisthat-menu-header {
+    font-weight: bold;
+    font-size: 13px;
+    padding: 6px 12px;
+}
