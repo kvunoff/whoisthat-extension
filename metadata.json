@@ -1,7 +1,7 @@
 {
   "uuid": "whoisthat-indicator@kvunoff",
   "name": "WhoisThat VPN Indicator",
-  "description": "Live status, speed monitor and quick controls for WhoisThat VPN",
+  "description": "Live status, speed monitor and quick controls for WhoisThat VPN client (https://github.com/kvunoff/whoisthat)",
   "shell-version": [
     "45",
     "46",

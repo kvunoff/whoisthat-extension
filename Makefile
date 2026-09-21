@@ -13,7 +13,7 @@ schemas:
 install: schemas
 	@echo "Installing $(UUID) to $(INSTALL_DIR)..."
 	@mkdir -p $(INSTALL_DIR)/schemas
-	@cp -f metadata.json stylesheet.css extension.js prefs.js $(INSTALL_DIR)/
+	@cp -f metadata.json stylesheet.css extension.js prefs.js README.md LICENSE $(INSTALL_DIR)/
 	@cp -f schemas/* $(INSTALL_DIR)/schemas/
 	@echo "Installed successfully. Use 'make prefs' to open settings."
 
@@ -40,7 +40,9 @@ pack: schemas
 	@gnome-extensions pack --force \
 		--extra-source=stylesheet.css \
 		--extra-source=prefs.js \
-		--extra-source=schemas
+		--extra-source=schemas \
+		--extra-source=README.md \
+		--extra-source=LICENSE
 	@echo "Created $(UUID).shell-extension.zip"
 
 uninstall: disable

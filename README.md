@@ -1,11 +1,13 @@
 # WhoisThat GNOME Shell Extension
 
-Top bar indicator and quick control menu for the **WhoisThat** VPN client.
+Top bar indicator and quick control menu for the **[WhoisThat](https://github.com/kvunoff/whoisthat)** VPN client.
+
+> **Note**: This extension is a companion interface designed specifically for the [WhoisThat VPN client](https://github.com/kvunoff/whoisthat). Make sure `whoisthat` is installed on your system to enable live connection status, speed monitoring, and quick controls.
 
 ## Features
 
 - **Top Bar Indicator**:
-  - Colored status dot (`●` green — connected, gray — disconnected, red — core offline).
+  - Colored status dot (`●` green — connected, gray — disconnected, red — core offline / not installed).
   - Active mode badge (`[TUN]` / `[Proxy]`).
   - Real-time network speed monitor (`↓ rx_speed ↑ tx_speed`).
 - **Dropdown Menu**:
@@ -14,6 +16,7 @@ Top bar indicator and quick control menu for the **WhoisThat** VPN client.
   - Quick **TUN Mode** switch (system VPN / proxy).
   - Nested **Profiles** list grouped by subscription with active profile checkmark.
   - **Open WhoisThat TUI** button to launch full interface in a terminal.
+  - Direct installation link if `whoisthat` is missing.
 - **Preferences & Customization**:
   - **Positioning**: choose top bar panel section (Right, Center, Left) and position order index with immediate on-the-fly relocation.
   - **Appearance**: toggle visibility for status dot (`●`), status text (`[Connected]`), mode badge (`[TUN]`/`[Proxy]`), and live speed.
@@ -22,10 +25,10 @@ Top bar indicator and quick control menu for the **WhoisThat** VPN client.
   - Asynchronous NDJSON stream reading (`whoisthat status --watch --json`) without blocking GNOME Shell.
   - Automatic reconnection when WhoisThat daemon restarts.
 
-## Compatibility
+## Requirements
 
 - **GNOME Shell**: 45, 46, 47, 48, 49, 50+
-- **WhoisThat**: 0.9.x+
+- **WhoisThat VPN Client**: [github.com/kvunoff/whoisthat](https://github.com/kvunoff/whoisthat) (v0.9.x+)
 
 ## Installation & Management
 
