@@ -8,6 +8,14 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 
+const OFFLINE_STATE = {
+    core_running: false,
+    connected: false,
+    tun_enabled: false,
+    profile_name: null,
+    protocol: null,
+};
+
 const CORE_REPO_URL = 'https://github.com/kvunoff/whoisthat';
 
 const WhoisThatIndicator = GObject.registerClass(
@@ -22,17 +30,11 @@ class WhoisThatIndicator extends PanelMenu.Button {
         this._syncingTunToggle = false;
         this._settingsSignals = [];
 
-        this._state = {
-            binary_installed: true,
-            core_running: false,
-            connected: false,
-            tun_enabled: false,
-            mode: '',
-            profile_name: null,
-            protocol: null,
-            rx_speed_human: '0 B/s',
-            tx_speed_human: '0 B/s'
-        };
+        this._state = { ...OFFLINE_STATE, binary_installed: true };
+        this._actionPending = false;
+        this._profileRequest = null;
+        this._profileItems = new Map();
+        this._activeProfileItem = null;
 
         // Container in panel
         const box = new St.BoxLayout({ style_class: 'whoisthat-panel-box' });
@@ -55,6 +57,7 @@ class WhoisThatIndicator extends PanelMenu.Button {
 
         this._buildMenu();
         this._bindSettings();
+        this._updateUi();
         this._startWatcher();
     }
 
@@ -88,19 +91,19 @@ class WhoisThatIndicator extends PanelMenu.Button {
         this._separator1 = new PopupMenu.PopupSeparatorMenuItem();
         this.menu.addMenuItem(this._separator1);
 
-        // 3. Connect / Disconnect button (toggle via -t)
+        // 3. Connect / Disconnect button
         this._connectToggleItem = new PopupMenu.PopupMenuItem('Connect');
         this._connectToggleItem.connect('activate', () => {
-            this._runCmd(['whoisthat', '-t']);
+            this._runCmd([this._state.connected ? 'disconnect' : 'connect', '--wait']);
         });
         this.menu.addMenuItem(this._connectToggleItem);
 
-        // 4. TUN Mode switch (toggle via -mt)
+        // 4. TUN Mode switch
         this._tunToggleItem = new PopupMenu.PopupSwitchMenuItem('TUN Mode', false);
         this._tunToggleItem.connect('toggled', (_item, state) => {
             if (this._syncingTunToggle) return;
             if (state !== this._state.tun_enabled) {
-                this._runCmd(['whoisthat', '-mt']);
+                this._runCmd(['mode', state ? 'tun' : 'proxy']);
             }
         });
         this.menu.addMenuItem(this._tunToggleItem);
@@ -108,7 +111,6 @@ class WhoisThatIndicator extends PanelMenu.Button {
         // 5. Profiles list submenu
         this._profilesSubmenu = new PopupMenu.PopupSubMenuMenuItem('Profiles');
         this.menu.addMenuItem(this._profilesSubmenu);
-        this._refreshProfilesMenu();
 
         // Refresh profiles whenever the menu is opened
         this.menu.connect('open-state-changed', (_menu, isOpen) => {
@@ -134,9 +136,8 @@ class WhoisThatIndicator extends PanelMenu.Button {
         const showModeBadge = this._settings ? this._settings.get_boolean('show-mode-badge') : true;
         const showSpeed = this._settings ? this._settings.get_boolean('show-speed') : true;
 
-        // Fallback: at least one element must be visible so indicator is clickable
-        const forceDot = !showDot && !showStatusText && !showModeBadge && !showSpeed;
-        this._dot.visible = showDot || forceDot;
+        const connected = this._state.core_running && this._state.connected;
+        this._dot.visible = showDot || !(showStatusText || (connected && (showModeBadge || showSpeed)));
 
         // State A: WhoisThat binary is not installed
         if (!this._state.binary_installed) {
@@ -162,24 +163,26 @@ class WhoisThatIndicator extends PanelMenu.Button {
         this._separator2.visible = true;
         this._openTuiItem.visible = true;
 
+        const controlsReady = !this._actionPending;
+        this._connectToggleItem.setSensitive(controlsReady);
+        this._tunToggleItem.setSensitive(controlsReady && this._state.core_running);
+        this._profilesSubmenu.setSensitive(controlsReady && this._state.core_running);
+
+        this._syncingTunToggle = true;
+        this._tunToggleItem.setToggleState(this._state.tun_enabled);
+        this._syncingTunToggle = false;
+        this._updateActiveProfile();
+
         if (!this._state.core_running) {
             this._dot.style_class = 'whoisthat-status-dot whoisthat-status-offline';
             this._label.text = '[Offline]';
             this._label.visible = showStatusText;
             this._menuHeader.label.text = 'WhoisThat: Core is offline';
             this._connectToggleItem.label.text = 'Connect';
-            this._connectToggleItem.setSensitive(false);
-            this._tunToggleItem.setSensitive(false);
             return;
         }
 
         // State C: Core daemon is online
-        this._connectToggleItem.setSensitive(true);
-        this._tunToggleItem.setSensitive(true);
-
-        this._syncingTunToggle = true;
-        this._tunToggleItem.setToggleState(!!this._state.tun_enabled);
-        this._syncingTunToggle = false;
 
         const modeTag = this._state.tun_enabled ? 'TUN' : 'Proxy';
 
@@ -245,11 +248,15 @@ class WhoisThatIndicator extends PanelMenu.Button {
         dataStream.read_line_async(GLib.PRIORITY_DEFAULT, this._cancellable, (stream, res) => {
             try {
                 const [line] = stream.read_line_finish_utf8(res);
+                if (this._cancellable.is_cancelled())
+                    return;
                 if (line !== null) {
-                    const parsed = JSON.parse(line);
-                    this._state = Object.assign(this._state, parsed);
-                    this._state.binary_installed = true;
+                    const wasOnline = this._state.core_running;
+                    const status = JSON.parse(line);
+                    this._state = { ...OFFLINE_STATE, ...status, binary_installed: true };
                     this._updateUi();
+                    if (!wasOnline && status.core_running && this.menu.isOpen)
+                        this._refreshProfilesMenu();
                     this._readNextLine(dataStream);
                 } else {
                     this._handleProcessExit();
@@ -263,7 +270,13 @@ class WhoisThatIndicator extends PanelMenu.Button {
     }
 
     _handleProcessExit() {
-        this._state.core_running = false;
+        this._watchProcess?.force_exit();
+        this._watchProcess = null;
+        this._state = { ...OFFLINE_STATE, binary_installed: this._state.binary_installed };
+        this._profileRequest = null;
+        this._profilesSubmenu.menu.removeAll();
+        this._profileItems.clear();
+        this._activeProfileItem = null;
         this._updateUi();
         this._scheduleReconnect(3);
     }
@@ -282,95 +295,144 @@ class WhoisThatIndicator extends PanelMenu.Button {
         });
     }
 
-    _runCmd(argv) {
+    _runCmd(args) {
+        if (this._actionPending)
+            return;
+
+        const flags = Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE;
         try {
-            const proc = new Gio.Subprocess({
-                argv: argv,
-                flags: Gio.SubprocessFlags.NONE
+            const process = Gio.Subprocess.new(['whoisthat', ...args, '--json'], flags);
+            this._actionPending = true;
+            this._updateUi();
+
+            process.communicate_utf8_async(null, this._cancellable, (child, result) => {
+                try {
+                    const [, stdout] = child.communicate_utf8_finish(result);
+                    if (this._cancellable.is_cancelled())
+                        return;
+                    if (!child.get_successful()) {
+                        const detail = child.get_if_exited()
+                            ? `Exit code: ${child.get_exit_status()}`
+                            : `Signal: ${child.get_term_sig()}`;
+                        throw new Error(detail);
+                    }
+                    if (args[0] === 'mode' && this._state.core_running)
+                        this._state.tun_enabled = JSON.parse(stdout).result.tun_enabled;
+                } catch (error) {
+                    if (!this._cancellable.is_cancelled())
+                        Main.notifyError('WhoisThat command failed', error.message);
+                } finally {
+                    if (!this._cancellable.is_cancelled()) {
+                        this._actionPending = false;
+                        this._updateUi();
+                    }
+                }
             });
-            proc.init(null);
-        } catch (e) {
-            console.error(`WhoisThat: error running command ${argv.join(' ')}: ${e}`);
+        } catch (error) {
+            Main.notifyError('Could not start WhoisThat', error.message);
+            this._actionPending = false;
+            this._updateUi();
         }
     }
 
     _refreshProfilesMenu() {
-        if (!this._state.binary_installed) return;
+        if (!this._state.core_running || this._profileRequest)
+            return;
 
+        const flags = Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE;
         try {
-            const proc = new Gio.Subprocess({
-                argv: ['whoisthat', 'profiles', '--json'],
-                flags: Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE
-            });
-            proc.init(this._cancellable);
-            proc.communicate_utf8_async(null, this._cancellable, (p, res) => {
+            const process = Gio.Subprocess.new(['whoisthat', 'profile', 'list', '--json'], flags);
+            this._profileRequest = process;
+            process.communicate_utf8_async(null, this._cancellable, (child, result) => {
                 try {
-                    const [, stdout] = p.communicate_utf8_finish(res);
-                    if (!stdout) return;
-                    const groups = JSON.parse(stdout);
-                    this._profilesSubmenu.menu.removeAll();
-
-                    for (const g of groups) {
-                        const groupSection = new PopupMenu.PopupMenuItem(`Group: ${g.group.name}`, { reactive: false });
-                        groupSection.label.style = 'font-weight: bold; font-size: 11px; color: #7dcfff;';
-                        this._profilesSubmenu.menu.addMenuItem(groupSection);
-
-                        for (const prof of g.profiles) {
-                            const isCurrent = this._state.profile_name === prof.name && this._state.connected;
-                            const prefix = isCurrent ? '● ' : '  ';
-                            const item = new PopupMenu.PopupMenuItem(`${prefix}${prof.name} (${prof.protocol})`);
-                            item.connect('activate', () => {
-                                this._runCmd(['whoisthat', 'connect', `${g.group.id}:${prof.id}`]);
-                            });
-                            this._profilesSubmenu.menu.addMenuItem(item);
-                        }
-                    }
-                } catch (_) {}
+                    const [, stdout] = child.communicate_utf8_finish(result);
+                    if (process !== this._profileRequest || this._cancellable.is_cancelled())
+                        return;
+                    if (!child.get_successful())
+                        throw new Error('profile list exited unsuccessfully');
+                    this._populateProfiles(JSON.parse(stdout));
+                } catch (error) {
+                    if (process === this._profileRequest && !this._cancellable.is_cancelled())
+                        this._showProfilesUnavailable(error);
+                } finally {
+                    if (process === this._profileRequest)
+                        this._profileRequest = null;
+                }
             });
-        } catch (_) {}
+        } catch (error) {
+            this._profileRequest = null;
+            this._showProfilesUnavailable(error);
+        }
+    }
+
+    _populateProfiles(profiles) {
+        const groups = new Map();
+        for (const profile of profiles) {
+            if (!groups.has(profile.group_id))
+                groups.set(profile.group_id, []);
+            groups.get(profile.group_id).push(profile);
+        }
+
+        this._profilesSubmenu.menu.removeAll();
+        this._profileItems.clear();
+        this._activeProfileItem = null;
+        if (groups.size === 0)
+            this._profilesSubmenu.menu.addMenuItem(
+                new PopupMenu.PopupMenuItem('No profiles', { reactive: false }));
+
+        for (const group of groups.values()) {
+            const header = new PopupMenu.PopupMenuItem(`Group: ${group[0].group_name}`, { reactive: false });
+            header.label.style = 'font-weight: bold; font-size: 11px; color: #7dcfff;';
+            this._profilesSubmenu.menu.addMenuItem(header);
+
+            for (const profile of group) {
+                const selector = `${profile.group_id}:${profile.id}`;
+                const item = new PopupMenu.PopupMenuItem(`${profile.name} (${profile.protocol})`);
+                item.connect('activate', () => this._runCmd(['connect', selector, '--wait']));
+                this._profilesSubmenu.menu.addMenuItem(item);
+                this._profileItems.set(selector, item);
+            }
+        }
+        this._updateActiveProfile();
+    }
+
+    _showProfilesUnavailable(error) {
+        console.error('WhoisThat: could not list profiles:', error);
+        this._profilesSubmenu.menu.removeAll();
+        this._profileItems.clear();
+        this._activeProfileItem = null;
+        this._profilesSubmenu.menu.addMenuItem(
+            new PopupMenu.PopupMenuItem('Could not load profiles', { reactive: false }));
+    }
+
+    _updateActiveProfile() {
+        const { connected, group_id, profile_id } = this._state;
+        const item = connected ? this._profileItems.get(`${group_id}:${profile_id}`) : null;
+        if (item === this._activeProfileItem)
+            return;
+        this._activeProfileItem?.setOrnament(PopupMenu.Ornament.NONE);
+        item?.setOrnament(PopupMenu.Ornament.DOT);
+        this._activeProfileItem = item;
     }
 
     _launchTerminal() {
-        if (!GLib.find_program_in_path('whoisthat')) {
-            Gio.AppInfo.launch_default_for_uri(CORE_REPO_URL, null);
-            return;
-        }
+        const preferred = this._settings.get_string('terminal-command');
+        const terminalFlags = {
+            alacritty: ['-e'],
+            'gnome-terminal': ['--'],
+            ptyxis: ['--'],
+            kitty: [],
+            ghostty: ['-e'],
+            xterm: ['-e'],
+        };
+        const argv = Object.hasOwn(terminalFlags, preferred) && GLib.find_program_in_path(preferred)
+            ? [preferred, ...terminalFlags[preferred], 'whoisthat']
+            : ['whoisthat'];
 
-        const preferred = this._settings ? this._settings.get_string('terminal-command') : 'auto';
-
-        if (preferred && preferred !== 'auto' && GLib.find_program_in_path(preferred)) {
-            const flag = preferred === 'gnome-terminal' || preferred === 'ptyxis' ? '--' : '-e';
-            try {
-                const proc = new Gio.Subprocess({
-                    argv: [preferred, flag, 'whoisthat'],
-                    flags: Gio.SubprocessFlags.NONE
-                });
-                proc.init(null);
-                return;
-            } catch (_) {}
-        }
-
-        const terminals = [
-            ['xdg-terminal-exec', 'whoisthat'],
-            ['alacritty', '-e', 'whoisthat'],
-            ['gnome-terminal', '--', 'whoisthat'],
-            ['ptyxis', '--', 'whoisthat'],
-            ['kitty', 'whoisthat'],
-            ['ghostty', '-e', 'whoisthat'],
-            ['xterm', '-e', 'whoisthat']
-        ];
-
-        for (const argv of terminals) {
-            const bin = argv[0];
-            if (GLib.find_program_in_path(bin)) {
-                try {
-                    const proc = new Gio.Subprocess({ argv: argv, flags: Gio.SubprocessFlags.NONE });
-                    proc.init(null);
-                    return;
-                } catch (e) {
-                    console.error(`WhoisThat: failed launching ${bin}: ${e}`);
-                }
-            }
+        try {
+            Gio.Subprocess.new(argv, Gio.SubprocessFlags.STDOUT_SILENCE);
+        } catch (error) {
+            Main.notifyError('Could not open WhoisThat', error.message);
         }
     }
 
@@ -387,12 +449,8 @@ class WhoisThatIndicator extends PanelMenu.Button {
             this._reconnectTimeoutId = null;
         }
         this._cancellable.cancel();
-        if (this._watchProcess) {
-            try {
-                this._watchProcess.force_exit();
-            } catch (_) {}
-            this._watchProcess = null;
-        }
+        this._watchProcess?.force_exit();
+        this._watchProcess = null;
         super.destroy();
     }
 });
