@@ -23,12 +23,17 @@ Top bar indicator and quick control menu for the **[WhoisThat](https://github.co
   - **Terminal**: select preferred terminal emulator for launching TUI (Auto-detect, Alacritty, GNOME Terminal, Ptyxis, Kitty, Ghostty, XTerm).
 - **Reliability**:
   - Asynchronous NDJSON stream reading (`whoisthat status --watch --json`) without blocking GNOME Shell.
-  - Automatic reconnection when WhoisThat daemon restarts.
+  - Automatic reconnection when the WhoisThat daemon restarts.
+  - **Connect** can start the core through the CLI, even when the indicator shows **Offline**.
+
+The profile menu uses `whoisthat profile list --json`. The TUN switch runs
+`whoisthat mode tun` or `whoisthat mode proxy`. With the terminal preference set
+to **Auto-detect**, **Open WhoisThat TUI** uses the terminal configured by WhoisThat.
 
 ## Requirements
 
-- **GNOME Shell**: 45, 46, 47, 48, 49, 50+
-- **WhoisThat VPN Client**: [github.com/kvunoff/whoisthat](https://github.com/kvunoff/whoisthat) (v0.9.x+)
+- **GNOME Shell**: 45–51
+- **WhoisThat VPN Client**: [github.com/kvunoff/whoisthat](https://github.com/kvunoff/whoisthat) (v0.19.7+)
 
 ## Installation & Management
 
